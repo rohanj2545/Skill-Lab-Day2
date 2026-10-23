@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My To-Do App</title>
+  <style>
+    body { margin:0; font-family:Arial,Helvetica,sans-serif; background:#f0f4f8; color:#222; }
+    header { background:#2e7d32; color:white; padding:14px 20px; display:flex; justify-content:space-between; align-items:center; }
+    header h1 { margin:0; font-size:22px; }
+    .container { max-width:760px; margin:20px auto; padding:0 16px; }
+    .box { background:white; border-radius:8px; padding:20px; margin-bottom:18px; box-shadow:0 1px 3px rgba(0,0,0,.1); }
+    h2,h3 { color:#2e7d32; } h2 { margin-top:0; font-size:18px; } h3 { font-size:15px; }
+    label { display:block; font-size:14px; margin-top:10px; }
+    input,select { padding:9px; border:1px solid #c4cfd9; border-radius:4px; font-size:15px; }
+    form input[type="text"],form input[type="password"] { width:100%; box-sizing:border-box; margin-top:4px; }
+    .row,.toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .row input { flex:1; min-width:180px; }
+    .btn { background:#2e7d32; color:white; border:0; padding:9px 14px; border-radius:4px; cursor:pointer; font-size:14px; margin-top:10px; }
+    .btn:hover { background:#1b5e20; } .btn:disabled { opacity:.6; cursor:wait; }
+    .btn-light { background:#e4e9f0; color:#222; } .btn-light:hover { background:#d2dae4; }
+    .btn-light.active { background:#1b5e20; color:white; }
+    .btn-danger { background:#b00020; padding:5px 10px; font-size:13px; margin-top:0; }
+    .btn-danger:hover { background:#8a0019; }
+    .toolbar { margin-bottom:12px; } .toolbar input { flex:1; min-width:140px; }
+    table { width:100%; border-collapse:collapse; font-size:14px; }
+    th,td { text-align:left; padding:10px; border-bottom:1px solid #e1e6ec; }
+    th { background:#f4f6f9; color:#2e7d32; }
+    tr.done td:nth-child(2) { text-decoration:line-through; color:#888; }
+    .footer { display:flex; justify-content:space-between; align-items:center; margin-top:12px; flex-wrap:wrap; gap:8px; }
+    .error { color:#b00020; font-size:13px; min-height:16px; margin:4px 0; }
+    .note { color:#666; font-size:13px; } .log { list-style:none; padding:0; margin:0; font-family:Consolas,monospace; font-size:13px; }
+    .log li { padding:4px 0; border-bottom:1px solid #eef1f4; }
+    @media(max-width:500px) { .box { padding:14px; } table { font-size:12px; } th,td { padding:6px; } }
+  </style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>My To-Do App</h1>
+    <button v-if="session" class="btn btn-light" @click="logout">Logout</button>
+  </header>
+
+  <main class="container">
+    <section v-if="!session" class="box" style="max-width:380px;margin:40px auto">
+      <h2>Login</h2>
+      <p class="note">Demo email: <b>student@example.com</b><br>Demo password: <b>password123</b></p>
+      <form @submit.prevent="login">
+        <label>Email
+          <input type="text" v-model="loginEmail" placeholder="Enter email" autocomplete="username">
+        </label>
+        <label>Password
+          <input type="password" v-model="loginPassword" placeholder="Enter password" autocomplete="current-password">
+        </label>
+        <button class="btn" type="submit" :disabled="loginBusy">{{ loginBusy ? "Please wait..." : "Login" }}</button>
+        <p class="error">{{ loginMessage }}</p>
+      </form>
+    </section>
+
+    <template v-else>
+      <section class="box">
+        <h2>Add a task</h2>
+        <form @submit.prevent="addTask">
+          <div class="row">
+            <input type="text" v-model="newTitle" placeholder="What do you need to do?">
+            <select v-model="newPriority">
+              <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
+            </select>
+            <button class="btn" type="submit" :disabled="savingTask">Add</button>
+          </div>
+          <p class="error">{{ titleError }}</p>
+        </form>
+      </section>
+
+      <section class="box">
+        <div class="toolbar">
+          <button class="btn btn-light" :class="{active:filter==='all'}" @click="filter='all'">All</button>
+          <button class="btn btn-light" :class="{active:filter==='active'}" @click="filter='active'">To do</button>
+          <button class="btn btn-light" :class="{active:filter==='done'}" @click="filter='done'">Done</button>
+          <input type="text" v-model="search" placeholder="Search tasks">
+          <button class="btn btn-light" @click="loadTasks">Refresh</button>
+        </div>
+        <p class="note" v-if="loading">Loading tasks...</p>
+        <p class="error">{{ error }}</p>
+        <table>
+          <thead><tr><th>Done</th><th>Task</th><th>Priority</th><th>Delete</th></tr></thead>
+          <tbody>
+            <tr v-for="t in visibleTasks" :key="t.id" :class="{done:t.done}">
+              <td><input type="checkbox" :checked="t.done" @change="toggleTask(t)"></td>
+              <td>{{ t.title }}</td>
+              <td><select :value="t.priority" @change="changePriority(t,$event.target.value)">
+                <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
+              </select></td>
+              <td><button class="btn btn-danger" @click="deleteTask(t)">Delete</button></td>
+            </tr>
+            <tr v-if="visibleTasks.length===0"><td colspan="4" class="note">No tasks to show.</td></tr>
+          </tbody>
+        </table>
+        <div class="footer">
+          <span class="note">{{ doneCount }} of {{ tasks.length }} done</span>
+          <button class="btn btn-light" @click="clearDone">Clear completed</button>
+        </div>
+      </section>
+
+      <section class="box">
+        <h3>API log (real HTTP requests)</h3>
+        <ul class="log">
+          <li v-for="(line,i) in apiLog" :key="i">{{ line }}</li>
+          <li v-if="apiLog.length===0">No requests yet.</li>
+        </ul>
+      </section>
+    </template>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.js"></script>
+<script>
+const API_BASE = "/api";
+const SESSION_KEY = "todo.session";
+
+Vue.createApp({
+  data() {
+    let session = null;
+    try { session = JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); }
+    catch { localStorage.removeItem(SESSION_KEY); }
+    return {
+      session, loginEmail:"", loginPassword:"", loginMessage:"", loginBusy:false,
+      tasks:[], loading:false, savingTask:false, error:"", newTitle:"",
+      newPriority:"medium", titleError:"", filter:"all", search:"", apiLog:[]
+    };
+  },
+  computed: {
+    visibleTasks() {
+      const text = this.search.trim().toLowerCase();
+      return this.tasks.filter(t => {
+        const matchesFilter = this.filter === "all" ||
+          (this.filter === "done" && t.done) ||
+          (this.filter === "active" && !t.done);
+        return matchesFilter && t.title.toLowerCase().includes(text);
+      });
+    },
+    doneCount() { return this.tasks.filter(t => t.done).length; }
+  },
+  methods: {
+    log(message) {
+      this.apiLog.unshift(new Date().toLocaleTimeString() + "  " + message);
+      this.apiLog = this.apiLog.slice(0, 12);
+    },
+    async request(path, options = {}) {
+      const headers = { "Content-Type":"application/json", ...(options.headers || {}) };
+      if (this.session && this.session.token) {
+        headers.Authorization = "Bearer " + this.session.token;
+      }
+      this.log((options.method || "GET") + " " + API_BASE + path);
+      let response;
+      try {
+        response = await fetch(API_BASE + path, { ...options, headers });
+      } catch {
+        throw new Error("Cannot reach the backend. Start the server with npm start.");
+      }
+      const data = response.status === 204 ? null : await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (response.status === 401 && path !== "/login") {
+          this.logout();
+        }
+        throw new Error(data.error || "Request failed (" + response.status + ").");
+      }
+      return data;
+    },
+    async login() {
+      this.loginMessage = "";
+      const email = this.loginEmail.trim().toLowerCase();
+      if (!email || !this.loginPassword) {
+        this.loginMessage = "Enter both email and password.";
+        return;
+      }
+      this.loginBusy = true;
+      try {
+        const result = await this.request("/login", {
+          method:"POST",
+          body:JSON.stringify({ email, password:this.loginPassword })
+        });
+        this.session = result;
+        localStorage.setItem(SESSION_KEY, JSON.stringify(result));
+        this.loginPassword = "";
+        await this.loadTasks();
+      } catch (e) {
+        this.loginMessage = e.message;
+      } finally {
+        this.loginBusy = false;
+      }
+    },
+    logout() {
+      localStorage.removeItem(SESSION_KEY);
+      this.session = null;
+      this.tasks = [];
+      this.loginPassword = "";
+      this.error = "";
+    },
+    async loadTasks() {
+      if (!this.session) return;
+      this.loading = true;
+      this.error = "";
+      try { this.tasks = await this.request("/tasks"); }
+      catch (e) { this.error = e.message; }
+      finally { this.loading = false; }
+    },
+    async addTask() {
+      const title = this.newTitle.trim();
+      this.titleError = "";
+      this.error = "";
+      if (title.length < 3) {
+        this.titleError = "Enter at least 3 characters.";
+        return;
+      }
+      this.savingTask = true;
+      try {
+        const task = await this.request("/tasks", {
+          method:"POST", body:JSON.stringify({ title, priority:this.newPriority })
+        });
+        this.tasks.unshift(task);
+        this.newTitle = "";
+        this.newPriority = "medium";
+      } catch (e) { this.error = e.message; }
+      finally { this.savingTask = false; }
+    },
+    async toggleTask(task) {
+      this.error = "";
+      try {
+        const updated = await this.request("/tasks/" + task.id, {
+          method:"PUT", body:JSON.stringify({ done:!task.done })
+        });
+        this.replaceTask(updated);
+      } catch (e) { this.error = e.message; await this.loadTasks(); }
+    },
+    async changePriority(task, priority) {
+      this.error = "";
+      try {
+        const updated = await this.request("/tasks/" + task.id, {
+          method:"PUT", body:JSON.stringify({ priority })
+        });
+        this.replaceTask(updated);
+      } catch (e) { this.error = e.message; await this.loadTasks(); }
+    },
+    replaceTask(updated) {
+      const index = this.tasks.findIndex(t => t.id === updated.id);
+      if (index !== -1) this.tasks.splice(index, 1, updated);
+    },
+    async deleteTask(task) {
+      if (!confirm('Delete "' + task.title + '"?')) return;
+      this.error = "";
+      try {
+        await this.request("/tasks/" + task.id, { method:"DELETE" });
+        this.tasks = this.tasks.filter(t => t.id !== task.id);
+      } catch (e) { this.error = e.message; }
+    },
+    async clearDone() {
+      this.error = "";
+      try {
+        await this.request("/tasks", { method:"DELETE" });
+        this.tasks = this.tasks.filter(t => !t.done);
+      } catch (e) { this.error = e.message; }
+    }
+  },
+  mounted() {
+    if (this.session) this.loadTasks();
+  }
+}).mount("#app");
+</script>
+</body>
+</html>
